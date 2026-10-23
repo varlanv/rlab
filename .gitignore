@@ -7,3 +7,4 @@ docgen_tmp/
 .zbscanhelper.zig
 .idea
 zig-pkg/
+shaders/compiled
