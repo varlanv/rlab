@@ -1,10 +1,17 @@
 #version 450
 
-const vec2 endpoints[2] = vec2[](
-vec2(-0.5, 0.0),
-vec2(0.5, 0.0)
-);
+layout(location = 0) in vec2 inPosition;
+layout(location = 1) in vec4 inColor;
 
-void main() {
-    gl_Position = vec4(endpoints[gl_VertexIndex], 0.0, 1.0);
+layout(std140, set = 1, binding = 0) uniform Camera
+{
+    mat4 projection;
+};
+
+layout(location = 0) out vec4 vertexColor;
+
+void main()
+{
+    gl_Position = projection * vec4(inPosition, 0.0, 1.0);
+    vertexColor = inColor;
 }
