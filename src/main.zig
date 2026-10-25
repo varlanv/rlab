@@ -62,8 +62,8 @@ fn handleVideo(gpa: std.mem.Allocator) !void {
         },
     };
 
-    const t = try sdl.fontSystem.createText("hello");
-    defer t.close();
+    const text = try sdl.fonts.createText("hello");
+    defer text.close();
     var event: sdl3.SDL_Event = undefined;
     while (!done) {
         const frameTimeStart = sdl3.SDL_GetTicksNS();
