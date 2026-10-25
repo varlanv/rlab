@@ -15,7 +15,10 @@ pub const GpuGraphicsPipeline = struct {
 
     pub fn init(sdl: *const Sdl) !GpuGraphicsPipeline {
         const colorTarget: sdl3.SDL_GPUColorTargetDescription = .{
-            .format = sdl3.SDL_GetGPUSwapchainTextureFormat(sdl.gpu.delegate, sdl.window),
+            .format = sdl3.SDL_GetGPUSwapchainTextureFormat(
+                sdl.gpu.delegate,
+                sdl.window.delegate,
+            ),
         };
         const bufferDescriptions = [1]sdl3.SDL_GPUVertexBufferDescription{.{
             .slot = 0,

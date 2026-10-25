@@ -30,7 +30,6 @@ pub const InitialIo = struct {
         };
     }
 
-
     pub fn close(self: Self, gpa: std.mem.Allocator) void {
         if (self.pool) |pool| {
             pool.deinit();
@@ -38,4 +37,3 @@ pub const InitialIo = struct {
         }
     }
 };
-

@@ -4,31 +4,30 @@ const sdl3 = @import("sdl");
 const Self = @This();
 initFlags: u32,
 gpu: GpuDevice,
-window: *sdl3.SDL_Window,
+window: Window,
 shaders: BuiltinShaders,
 
 pub fn init() !Self {
     const sdlInitFlags = sdl3.SDL_INIT_VIDEO;
     if (!sdl3.SDL_InitSubSystem(sdlInitFlags)) {
         std.debug.print("Failed to initialize SDL video subsystem [{s}]", .{sdl3.SDL_GetError()});
-        return InitError.Video;
+        return error.SdlVideoInit;
     }
     errdefer sdl3.SDL_QuitSubSystem(sdlInitFlags);
     const gpu = try GpuDevice.init(sdl3.SDL_GPU_SHADERFORMAT_SPIRV, true);
     errdefer gpu.close();
-    const window = sdl3.SDL_CreateWindow(
-        "win",
-        800,
-        600,
-        sdl3.SDL_WINDOW_RESIZABLE,
-    ) orelse {
-        std.debug.panic("Failed to render window - {s}", .{sdl3.SDL_GetError()});
-        return;
-    };
-    errdefer sdl3.SDL_DestroyWindow(window);
-    if (!sdl3.SDL_ClaimWindowForGPUDevice(gpu.delegate, window)) {
-        std.debug.panic("Failed to claim window for GPU - {s}", .{sdl3.SDL_GetError()});
-        return;
+    const window = try Window.init(gpu);
+    errdefer window.close();
+    if (!sdl3.SDL_SetGPUSwapchainParameters(
+        gpu.delegate,
+        window.delegate,
+        sdl3.SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
+        sdl3.SDL_GPU_PRESENTMODE_IMMEDIATE,
+    )) {
+        std.debug.print("Failed to configure presentation: {s}\n", .{
+            sdl3.SDL_GetError(),
+        });
+        return error.SwapchainConfigurationFailed;
     }
     const builtinShaders = try BuiltinShaders.init(gpu);
     return .{
@@ -41,14 +40,87 @@ pub fn init() !Self {
 
 pub fn close(self: Self) void {
     self.shaders.close(self.gpu);
-    sdl3.SDL_ReleaseWindowFromGPUDevice(self.gpu.delegate, self.window);
-    sdl3.SDL_DestroyWindow(self.window);
+    self.window.close();
     self.gpu.close();
     sdl3.SDL_QuitSubSystem(self.initFlags);
 }
 
-pub const ShaderLoadError = error{ FileLoad, ShaderInit };
 pub const FileOpenError = error{Open};
+
+pub const Display = sdl3.SDL_DisplayMode;
+pub const RectangleSize = struct {
+    width: i32,
+    height: i32,
+};
+
+pub const Window = struct {
+    gpu: GpuDevice,
+    delegate: *sdl3.SDL_Window,
+
+    pub fn windowSizeInPixels(self: Window) !RectangleSize {
+        var h: i32 = 0;
+        var w: i32 = 0;
+        if (!self.delegate.GetWindowSizeInPixels(&w, &h)) {
+            std.debug.print("Failed to get current window size - {s}", .{sdl3.SDL_GetError()});
+            return error.GetWindowSize;
+        }
+        return .{
+            .height = h,
+            .width = w,
+        };
+    }
+
+    pub fn currentDisplay(self: Window) !*const Display {
+        const displayId = sdl3.SDL_GetDisplayForWindow(self.delegate);
+        if (displayId == 0) {
+            std.debug.print("Failed to get display for window - {s}", .{sdl3.SDL_GetError()});
+            return error.GetDisplyForWindow;
+        }
+        const res = sdl3.SDL_GetCurrentDisplayMode(displayId) orelse {
+            std.debug.print("Failed to get current display mode - {s}", .{sdl3.SDL_GetError()});
+            return error.GetCurrentDisplayMode;
+        };
+        return res;
+    }
+
+    pub fn init(gpu: GpuDevice) !Window {
+        const window = sdl3.SDL_CreateWindow(
+            "win",
+            800,
+            600,
+            sdl3.SDL_WINDOW_RESIZABLE,
+        ) orelse {
+            std.debug.print("Failed to render window - {s}", .{sdl3.SDL_GetError()});
+            return error.SdlWindowInit;
+        };
+        const res: Window = .{
+            .gpu = gpu,
+            .delegate = window,
+        };
+        errdefer res.close();
+        try claimForGpu(res, gpu);
+        return res;
+    }
+
+    fn claimForGpu(self: Window, gpu: GpuDevice) !void {
+        if (!sdl3.SDL_ClaimWindowForGPUDevice(gpu.delegate, self.delegate)) {
+            std.debug.print("Failed to claim window for GPU - {s}", .{sdl3.SDL_GetError()});
+            return error.SdlGpuDeviceClaim;
+        }
+        if (!sdl3.SDL_WindowSupportsGPUPresentMode(
+            gpu.delegate,
+            self.delegate,
+            sdl3.SDL_GPU_PRESENTMODE_IMMEDIATE,
+        )) {
+            return error.ImmediatePresentModeUnsupported;
+        }
+    }
+
+    pub fn close(self: Window) void {
+        sdl3.SDL_ReleaseWindowFromGPUDevice(self.gpu.delegate, self.delegate);
+        sdl3.SDL_DestroyWindow(self.delegate);
+    }
+};
 
 pub const File = struct {
     pub const FileOpenError = error{Open};
@@ -153,8 +225,6 @@ pub const Shader = struct {
     }
 };
 
-pub const InitError = error{Video};
-
 pub const Color = extern struct { r: u8, g: u8, b: u8, a: u8 };
 pub const Point2 = extern struct { x: f32, y: f32 };
 pub const ColoredLine = struct { startPos: Point2, endPos: Point2, color: Color };
@@ -211,7 +281,7 @@ pub const SwapchainGpuTexture = struct {
         var height: u32 = 0;
         if (!sdl3.SDL_WaitAndAcquireGPUSwapchainTexture(
             commandBuffer,
-            sdl.window,
+            sdl.window.delegate,
             &gpuTexture,
             &width,
             &height,
@@ -277,5 +347,11 @@ pub const GpuTransferBuffer = struct {
             .gpu = sdl.gpu,
             .delegate = gpuTransferBuffer,
         };
+    }
+};
+
+pub const Monitor = struct {
+    pub fn init() void {
+        _ = sdl3.SDL_GetDisplayForWindow();
     }
 };
