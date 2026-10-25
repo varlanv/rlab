@@ -15,6 +15,19 @@
             .url = "https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.4.18.tar.gz",
             .hash = "N-V-__8AACpx-AKEJIUZ0-XrP9-96MpSaw17FJ7L6B7LmO42",
         },
+        .sdl_ttf = .{
+            .url = "https://github.com/libsdl-org/SDL_ttf/archive/refs/tags/release-3.2.2.tar.gz",
+            .hash = "N-V-__8AAF2JgAAh17Q1TlM1Y1o3Bpa1ScEBL0bPohGSmXIi",
+        },
+        // Match SDL_ttf vendored dependency revisions.
+        .freetype = .{
+            .url = "https://github.com/libsdl-org/freetype/archive/9973564cfa63763a3e4ac67c09147899539b1e07.tar.gz",
+            .hash = "N-V-__8AAHLWpwDOAhPkM2dXnGZD0Qrj0oELN9CkRIjtjidJ",
+        },
+        .harfbuzz = .{
+            .url = "https://github.com/libsdl-org/harfbuzz/archive/564bf9818a18709776856533829c0c04950773d6.tar.gz",
+            .hash = "N-V-__8AAFdpqQWkaPmT_dHs35vsd0C0D4jKUH0rhc4XyJiD",
+        },
     },
     .paths = .{
         "build.zig",

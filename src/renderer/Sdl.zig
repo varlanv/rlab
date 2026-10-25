@@ -1,3 +1,4 @@
+const lang = @import("../lang.zig");
 const std = @import("std");
 const sdl3 = @import("sdl");
 
@@ -6,16 +7,19 @@ initFlags: u32,
 gpu: GpuDevice,
 window: Window,
 shaders: BuiltinShaders,
+fontSystem: FontSystem,
 
 pub fn init() !Self {
     const sdlInitFlags = sdl3.SDL_INIT_VIDEO;
     if (!sdl3.SDL_InitSubSystem(sdlInitFlags)) {
-        std.debug.print("Failed to initialize SDL video subsystem [{s}]", .{sdl3.SDL_GetError()});
+        std.debug.print("Failed to initialize SDL video subsystem [ {s} ]", .{sdl3.SDL_GetError()});
         return error.SdlVideoInit;
     }
     errdefer sdl3.SDL_QuitSubSystem(sdlInitFlags);
     const gpu = try GpuDevice.init(sdl3.SDL_GPU_SHADERFORMAT_SPIRV, true);
     errdefer gpu.close();
+    const fontSystem = try FontSystem.init(gpu);
+    errdefer fontSystem.close();
     const window = try Window.init(gpu);
     errdefer window.close();
     if (!sdl3.SDL_SetGPUSwapchainParameters(
@@ -35,6 +39,7 @@ pub fn init() !Self {
         .gpu = gpu,
         .window = window,
         .shaders = builtinShaders,
+        .fontSystem = fontSystem,
     };
 }
 
@@ -43,9 +48,79 @@ pub fn close(self: Self) void {
     self.window.close();
     self.gpu.close();
     sdl3.SDL_QuitSubSystem(self.initFlags);
+    sdl3.TTF_Quit();
 }
 
 pub const FileOpenError = error{Open};
+
+pub const Font = struct {
+    delegate: *sdl3.TTF_Font,
+
+    pub fn close(self: Font) void {
+        sdl3.TTF_CloseFont(self.delegate);
+    }
+};
+
+pub const TTFText = struct {
+    delegate: *sdl3.TTF_Text,
+    gpuDrawData: [*c]const sdl3.TTF_GPUAtlasDrawSequence,
+
+    pub fn close(self: TTFText) void {
+        self.delegate.DestroyText();
+    }
+};
+
+pub const FontSystem = struct {
+    defaultFont: Font,
+    gpuTextEngine: *sdl3.TTF_TextEngine,
+
+    pub fn init(gpu: GpuDevice) !FontSystem {
+        if (!sdl3.TTF_Init()) {
+            std.debug.print("Failed to init TTF lib [ {s} ]", .{sdl3.SDL_GetError()});
+        }
+        errdefer sdl3.TTF_Quit();
+        const defaultFont = sdl3.TTF_OpenFont("assets/fonts/GoogleSansFlex_24pt-Regular.ttf", 24) orelse {
+            std.debug.print("Failed to load fonts [ {s} ]", .{sdl3.SDL_GetError()});
+            return error.LoadFonts;
+        };
+
+        const gpuTextEngine = sdl3.TTF_CreateGPUTextEngine(gpu.delegate) orelse {
+            std.debug.print("Failed to create gpu text engine [ {s} ]", .{sdl3.SDL_GetError()});
+            return error.CreateGPUTextEngine;
+        };
+        errdefer gpuTextEngine.DestroyGPUTextEngine();
+        return .{
+            .defaultFont = .{
+                .delegate = defaultFont,
+            },
+            .gpuTextEngine = gpuTextEngine,
+        };
+    }
+
+    pub fn createText(self: *const FontSystem, text: lang.CString) !TTFText {
+        const ttfText = sdl3.TTF_CreateText(
+            self.gpuTextEngine,
+            self.defaultFont.delegate,
+            text,
+            text.len,
+        ) orelse {
+            return error.CreateTTFText;
+        };
+        const drawData = sdl3.TTF_GetGPUTextDrawData(ttfText) orelse {
+            return error.GetGPUTextDrawData;
+        };
+        return .{
+            .delegate = ttfText,
+            .gpuDrawData = drawData,
+        };
+    }
+
+    pub fn close(self: *const FontSystem) void {
+        self.defaultFont.close();
+        self.gpuTextEngine.DestroyGPUTextEngine();
+        sdl3.TTF_Quit();
+    }
+};
 
 pub const Display = sdl3.SDL_DisplayMode;
 pub const RectangleSize = struct {
@@ -127,7 +202,7 @@ pub const File = struct {
 
     data: []const u8,
 
-    pub fn load(path: [:0]const u8) !File {
+    pub fn load(path: lang.CString) !File {
         var size: usize = undefined;
         const ptr = sdl3.SDL_LoadFile(
             path.ptr,
@@ -189,7 +264,7 @@ pub const Shader = struct {
 
     pub fn load(
         gpu: GpuDevice,
-        path: [:0]const u8,
+        path: lang.CString,
         props: ShaderProps,
     ) !Shader {
         const file = File.load(path) catch return error.FileLoad;
