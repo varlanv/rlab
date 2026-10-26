@@ -54,7 +54,6 @@ pub fn close(self: Self) void {
 
 pub const FileOpenError = error{Open};
 
-
 pub const Display = sdl3.SDL_DisplayMode;
 pub const RectangleSize = struct {
     width: i32,

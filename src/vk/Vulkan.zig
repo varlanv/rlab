@@ -4,6 +4,8 @@ const Self = @This();
 instance: *VkInstance,
 physicalDevices: []*VkPhysicalDevice,
 physicalDeviceProperties: []VkPhysicalDeviceProperties,
+targetPhysicalDevice: *VkPhysicalDevice,
+targetDeviceProperties: *VkPhysicalDeviceProperties,
 
 pub fn init(gpa: std.mem.Allocator) !Self {
     var vkInstance: ?*VkInstance = null;
@@ -50,20 +52,52 @@ pub fn init(gpa: std.mem.Allocator) !Self {
         return error.VulkanEnumerateDevices;
     }
     const deviceProperties = try gpa.alloc(VkPhysicalDeviceProperties, pPhysicalDeviceCount);
+    errdefer gpa.free(deviceProperties);
     for (devices, 0..pPhysicalDeviceCount) |item, idx| {
-        var device = deviceProperties[idx];
-        vkGetPhysicalDeviceProperties(item, &device);
-        std.debug.print("vkGetPhysicalDeviceProperties loaded device [ {s} ] vendor [ {s}({d}) ] \n", .{
+        var device = &deviceProperties[idx];
+        vkGetPhysicalDeviceProperties(item, device);
+        std.debug.print("vkGetPhysicalDeviceProperties loaded device [ {s} ] vendor [ {s}({d}) ]\n", .{
             device.deviceName,
             @tagName(device.resolveVendorId()),
             device.vendorID,
         });
     }
+    const suitableGpu = findMostSuitableGpu(devices, deviceProperties);
+    const targetDevice = suitableGpu.@"0";
+    const targetDeviceProperties = suitableGpu.@"1";
+    std.debug.print("chose target GPU: [ {s} ] vendor [ {s}({d}) ]\n", .{
+        targetDeviceProperties.deviceName,
+        @tagName(targetDeviceProperties.resolveVendorId()),
+        targetDeviceProperties.vendorID,
+    });
+
     return .{
         .instance = instance,
         .physicalDevices = devices,
         .physicalDeviceProperties = deviceProperties,
+        .targetPhysicalDevice = targetDevice,
+        .targetDeviceProperties = targetDeviceProperties,
     };
+}
+
+fn findMostSuitableGpu(
+    physicalDevices: []*VkPhysicalDevice,
+    physicalDeviceProperties: []VkPhysicalDeviceProperties,
+) struct { *VkPhysicalDevice, *VkPhysicalDeviceProperties } {
+    const len = physicalDevices.len;
+    std.debug.assert(physicalDevices.len > 0);
+    std.debug.assert(physicalDevices.len == physicalDeviceProperties.len);
+    var resProperties = &physicalDeviceProperties[0];
+    var resDevice = physicalDevices[0];
+    // todo this needs more strict implementation
+    for (1..len) |idx| {
+        const properties = physicalDeviceProperties[idx];
+        if (properties.deviceType.priority() < resProperties.deviceType.priority()) {
+            resDevice = physicalDevices[idx];
+            resProperties = &physicalDeviceProperties[idx];
+        }
+    }
+    return .{ resDevice, resProperties };
 }
 
 pub fn close(self: *const Self, gpa: std.mem.Allocator) void {
@@ -186,6 +220,16 @@ pub const VkPhysicalDeviceType = enum(u32) {
     VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
     VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU = 3,
     VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
+
+    pub fn priority(self: VkPhysicalDeviceType) u3 {
+        return switch (self) {
+            .VK_PHYSICAL_DEVICE_TYPE_OTHER => 4,
+            .VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU => 1,
+            .VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU => 0,
+            .VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU => 2,
+            .VK_PHYSICAL_DEVICE_TYPE_CPU => 3,
+        };
+    }
 };
 
 pub const VkBool32 = enum(u32) {

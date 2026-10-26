@@ -12,7 +12,6 @@ pub const DelegateRenderPass = sdl3.SDL_GPURenderPass;
 
 pub const GpuTextPipeline = struct {
     delegate: *sdl3.SDL_GPUGraphicsPipeline,
-
 };
 
 pub const GpuGraphicsPipeline = struct {
