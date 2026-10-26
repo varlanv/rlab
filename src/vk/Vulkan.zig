@@ -4,6 +4,14 @@ const VkResult = @import("VkResult.zig");
 
 const Self = @This();
 
+pub const VkQueueFlagBits = enum(u32) {
+    VK_QUEUE_GRAPHICS_BIT = 0x00000001,
+    VK_QUEUE_COMPUTE_BIT = 0x00000002,
+    VK_QUEUE_TRANSFER_BIT = 0x00000004,
+    // Provided by VK_VERSION_1_1
+    VK_QUEUE_PROTECTED_BIT = 0x00000010,
+};
+
 pub const VkVendorId = enum(u16) {
     nvidia = 4318,
     amd = 4098,
