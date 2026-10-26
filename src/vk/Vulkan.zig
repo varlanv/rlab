@@ -1,17 +1,23 @@
 const std = @import("std");
+const VkStructureType = @import("VkStructureType.zig");
+const VkResult = @import("VkResult.zig");
 
 const Self = @This();
 instance: *VkInstance,
-physicalDevices: []*VkPhysicalDevice,
-physicalDeviceProperties: []VkPhysicalDeviceProperties,
 targetPhysicalDevice: *VkPhysicalDevice,
-targetDeviceProperties: *VkPhysicalDeviceProperties,
+targetDeviceProperties: VkPhysicalDeviceProperties,
+device: *VkDevice,
+
+pub const VkPhysicalDevices = struct {
+    devices: []*VkPhysicalDevice,
+    properties: []VkPhysicalDeviceProperties,
+};
 
 pub fn init(gpa: std.mem.Allocator) !Self {
     var vkInstance: ?*VkInstance = null;
     const createInstanceRes = vkCreateInstance(
         &.{
-            .sType = @backingInt(VkStructureType.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO),
+            .sType = VkStructureType.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             .pNext = null,
             .flags = 0,
             .pApplicationInfo = null,
@@ -23,18 +29,104 @@ pub fn init(gpa: std.mem.Allocator) !Self {
         null,
         &vkInstance,
     );
-    std.debug.print("vkCreateInstance result -> {s}({d})\n", .{ @tagName(createInstanceRes), createInstanceRes });
+    std.debug.print("vkCreateInstance result -> {d}\n", .{createInstanceRes});
     if (createInstanceRes != VkResult.VK_SUCCESS) {
         return error.VulkanInstanceCreate;
     }
-    const instance = vkInstance orelse return error.VulkanInstanceCreate;
+    const resolvedInstance = vkInstance orelse return error.VulkanInstanceCreate;
+    errdefer vkDestroyInstance(resolvedInstance, null);
+    const physicalDevices = try resolvePhysicalDevices(gpa, resolvedInstance);
+    defer gpa.free(physicalDevices.devices);
+    defer gpa.free(physicalDevices.properties);
+    const suitableGpu = findMostSuitableGpu(physicalDevices);
+    const targetDevice = suitableGpu.@"0";
+    const targetDeviceProperties = suitableGpu.@"1".*;
+    std.debug.print("chose target GPU: [ {s} ] vendor [ {d} ]\n", .{
+        targetDeviceProperties.deviceName,
+        targetDeviceProperties.vendorID,
+    });
+    const queueFamilyProperties = try resolveQueueFamilyProperties(gpa, targetDevice);
+    defer gpa.free(queueFamilyProperties);
+    const queueFamilyIdx: u32 = @intCast(if (queueFamilyProperties.len > 1) 1 else queueFamilyProperties.len - 1);
+    const device = try initLogicalDevice(targetDevice, queueFamilyIdx);
+    errdefer vkDestroyDevice(device, null);
+    return .{
+        .instance = resolvedInstance,
+        .targetPhysicalDevice = targetDevice,
+        .targetDeviceProperties = targetDeviceProperties,
+        .device = device,
+    };
+}
+
+fn initLogicalDevice(
+    physicalDevice: *VkPhysicalDevice,
+    queueFamilyIndex: u32,
+) !*VkDevice {
+    const priorities = [_]f32{1.0};
+    const queueCreateInfos = [_]VkDeviceQueueCreateInfo{.{
+        .sType = VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .pNext = null,
+        .flags = 0,
+        .queueFamilyIndex = queueFamilyIndex,
+        .queueCount = priorities.len,
+        .pQueuePriorities = &priorities,
+    }};
+    const createInfo: VkDeviceCreateInfo = .{
+        .sType = VkStructureType.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext = null,
+        .flags = 0,
+        .queueCreateInfoCount = 1,
+        .pQueueCreateInfos = &queueCreateInfos,
+        .enabledLayerCount = 0,
+        .ppEnabledLayerNames = null,
+        .enabledExtensionCount = 0,
+        .ppEnabledExtensionNames = null,
+        .pEnabledFeatures = null,
+    };
+    var device: ?*VkDevice = null;
+    const createRes = vkCreateDevice(
+        physicalDevice,
+        &createInfo,
+        null,
+        &device,
+    );
+    std.debug.print("vkCreateDevice result -> {d}\n", .{createRes});
+    if (createRes != VkResult.VK_SUCCESS) {
+        return error.CreateVkDevice;
+    }
+    return device orelse return error.CreateVkDevice;
+}
+
+fn resolveQueueFamilyProperties(gpa: std.mem.Allocator, physicalDevice: *VkPhysicalDevice) ![]VkQueueFamilyProperties {
+    // todo figure out what queue family is used for in Vulkan
+    var propertyCount: u32 = undefined;
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        physicalDevice,
+        &propertyCount,
+        null,
+    );
+    std.debug.print("vkGetPhysicalDeviceQueueFamilyProperties count call returned {d}\n", .{propertyCount});
+    if (propertyCount == 0) {
+        return error.Todo;
+    }
+    const properties = try gpa.alloc(VkQueueFamilyProperties, propertyCount);
+    errdefer gpa.free(properties);
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        physicalDevice,
+        &propertyCount,
+        properties.ptr,
+    );
+    return properties;
+}
+
+fn resolvePhysicalDevices(gpa: std.mem.Allocator, vkInstance: *VkInstance) !VkPhysicalDevices {
     var pPhysicalDeviceCount: u32 = undefined;
     const devicesCountRes = vkEnumeratePhysicalDevices(
-        instance,
+        vkInstance,
         &pPhysicalDeviceCount,
         null,
     );
-    std.debug.print("vkEnumeratePhysicalDevices count result -> {s}({d})\n", .{ @tagName(devicesCountRes), devicesCountRes });
+    std.debug.print("vkEnumeratePhysicalDevices count result -> {d}\n", .{devicesCountRes});
     if (devicesCountRes != VkResult.VK_SUCCESS) {
         return error.VulkanEnumerateDevices;
     } else if (pPhysicalDeviceCount == 0) {
@@ -44,7 +136,7 @@ pub fn init(gpa: std.mem.Allocator) !Self {
     const devices = try gpa.alloc(*VkPhysicalDevice, pPhysicalDeviceCount);
     errdefer gpa.free(devices);
     const devicesRes = vkEnumeratePhysicalDevices(
-        instance,
+        vkInstance,
         &pPhysicalDeviceCount,
         devices.ptr,
     );
@@ -53,57 +145,41 @@ pub fn init(gpa: std.mem.Allocator) !Self {
     }
     const deviceProperties = try gpa.alloc(VkPhysicalDeviceProperties, pPhysicalDeviceCount);
     errdefer gpa.free(deviceProperties);
-    for (devices, 0..pPhysicalDeviceCount) |item, idx| {
-        var device = &deviceProperties[idx];
-        vkGetPhysicalDeviceProperties(item, device);
-        std.debug.print("vkGetPhysicalDeviceProperties loaded device [ {s} ] vendor [ {s}({d}) ]\n", .{
-            device.deviceName,
-            @tagName(device.resolveVendorId()),
-            device.vendorID,
+    // todo this may need revisit to strictly guarantee that count is same as returned array
+    for (0..pPhysicalDeviceCount) |idx| {
+        const device = devices[idx];
+        const properties = &deviceProperties[idx];
+        vkGetPhysicalDeviceProperties(device, properties);
+        std.debug.print("vkGetPhysicalDeviceProperties loaded device [ {s} ] vendor [ {d} ]\n", .{
+            properties.deviceName,
+            properties.vendorID,
         });
     }
-    const suitableGpu = findMostSuitableGpu(devices, deviceProperties);
-    const targetDevice = suitableGpu.@"0";
-    const targetDeviceProperties = suitableGpu.@"1";
-    std.debug.print("chose target GPU: [ {s} ] vendor [ {s}({d}) ]\n", .{
-        targetDeviceProperties.deviceName,
-        @tagName(targetDeviceProperties.resolveVendorId()),
-        targetDeviceProperties.vendorID,
-    });
-
     return .{
-        .instance = instance,
-        .physicalDevices = devices,
-        .physicalDeviceProperties = deviceProperties,
-        .targetPhysicalDevice = targetDevice,
-        .targetDeviceProperties = targetDeviceProperties,
+        .devices = devices,
+        .properties = deviceProperties,
     };
 }
 
-fn findMostSuitableGpu(
-    physicalDevices: []*VkPhysicalDevice,
-    physicalDeviceProperties: []VkPhysicalDeviceProperties,
-) struct { *VkPhysicalDevice, *VkPhysicalDeviceProperties } {
-    const len = physicalDevices.len;
-    std.debug.assert(physicalDevices.len > 0);
-    std.debug.assert(physicalDevices.len == physicalDeviceProperties.len);
-    var resProperties = &physicalDeviceProperties[0];
-    var resDevice = physicalDevices[0];
+fn findMostSuitableGpu(physicalDevices: VkPhysicalDevices) struct { *VkPhysicalDevice, *VkPhysicalDeviceProperties } {
+    std.debug.assert(physicalDevices.properties.len > 0);
+    std.debug.assert(physicalDevices.properties.len == physicalDevices.devices.len);
+    var resProperties = &physicalDevices.properties[0];
+    var resDevice = physicalDevices.devices[0];
     // todo this needs more strict implementation
-    for (1..len) |idx| {
-        const properties = physicalDeviceProperties[idx];
+    for (1..physicalDevices.properties.len) |idx| {
+        const properties = physicalDevices.properties[idx];
         if (properties.deviceType.priority() < resProperties.deviceType.priority()) {
-            resDevice = physicalDevices[idx];
-            resProperties = &physicalDeviceProperties[idx];
+            resDevice = physicalDevices.devices[idx];
+            resProperties = &physicalDevices.properties[idx];
         }
     }
     return .{ resDevice, resProperties };
 }
 
-pub fn close(self: *const Self, gpa: std.mem.Allocator) void {
+pub fn close(self: *const Self, _: std.mem.Allocator) void {
+    vkDestroyDevice(self.device, null);
     vkDestroyInstance(self.instance, null);
-    gpa.free(self.physicalDevices);
-    gpa.free(self.physicalDeviceProperties);
     std.debug.print("vkDestroyInstance finished\n", .{});
 }
 
@@ -112,95 +188,6 @@ pub const VkVendorId = enum(u16) {
     amd = 4098,
     intel = 32902,
     other = 0,
-};
-
-pub const VkResult = enum(i32) {
-    VK_SUCCESS = 0,
-    VK_NOT_READY = 1,
-    VK_TIMEOUT = 2,
-    VK_EVENT_SET = 3,
-    VK_EVENT_RESET = 4,
-    VK_INCOMPLETE = 5,
-    VK_ERROR_OUT_OF_HOST_MEMORY = -1,
-    VK_ERROR_OUT_OF_DEVICE_MEMORY = -2,
-    VK_ERROR_INITIALIZATION_FAILED = -3,
-    VK_ERROR_DEVICE_LOST = -4,
-    VK_ERROR_MEMORY_MAP_FAILED = -5,
-    VK_ERROR_LAYER_NOT_PRESENT = -6,
-    VK_ERROR_EXTENSION_NOT_PRESENT = -7,
-    VK_ERROR_FEATURE_NOT_PRESENT = -8,
-    VK_ERROR_INCOMPATIBLE_DRIVER = -9,
-    VK_ERROR_TOO_MANY_OBJECTS = -10,
-    VK_ERROR_FORMAT_NOT_SUPPORTED = -11,
-    VK_ERROR_FRAGMENTED_POOL = -12,
-    VK_ERROR_UNKNOWN = -13,
-    // Provided by VK_VERSION_1_0
-    VK_ERROR_VALIDATION_FAILED = -1000011001,
-    // Provided by VK_VERSION_1_1
-    VK_ERROR_OUT_OF_POOL_MEMORY = -1000069000,
-    // Provided by VK_VERSION_1_1
-    VK_ERROR_INVALID_EXTERNAL_HANDLE = -1000072003,
-    // Provided by VK_VERSION_1_2
-    VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS = -1000257000,
-    // Provided by VK_VERSION_1_2
-    VK_ERROR_FRAGMENTATION = -1000161000,
-    // Provided by VK_VERSION_1_3
-    VK_PIPELINE_COMPILE_REQUIRED = 1000297000,
-    // Provided by VK_VERSION_1_4
-    VK_ERROR_NOT_PERMITTED = -1000174001,
-    // Provided by VK_KHR_surface
-    VK_ERROR_SURFACE_LOST_KHR = -1000000000,
-    // Provided by VK_KHR_surface
-    VK_ERROR_NATIVE_WINDOW_IN_USE_KHR = -1000000001,
-    // Provided by VK_KHR_swapchain
-    VK_SUBOPTIMAL_KHR = 1000001003,
-    // Provided by VK_KHR_swapchain
-    VK_ERROR_OUT_OF_DATE_KHR = -1000001004,
-    // Provided by VK_KHR_display_swapchain
-    VK_ERROR_INCOMPATIBLE_DISPLAY_KHR = -1000003001,
-    // Provided by VK_NV_glsl_shader
-    VK_ERROR_INVALID_SHADER_NV = -1000012000,
-    // Provided by VK_KHR_video_queue
-    VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR = -1000023000,
-    // Provided by VK_KHR_video_queue
-    VK_ERROR_VIDEO_PICTURE_LAYOUT_NOT_SUPPORTED_KHR = -1000023001,
-    // Provided by VK_KHR_video_queue
-    VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR = -1000023002,
-    // Provided by VK_KHR_video_queue
-    VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR = -1000023003,
-    // Provided by VK_KHR_video_queue
-    VK_ERROR_VIDEO_PROFILE_CODEC_NOT_SUPPORTED_KHR = -1000023004,
-    // Provided by VK_KHR_video_queue
-    VK_ERROR_VIDEO_STD_VERSION_NOT_SUPPORTED_KHR = -1000023005,
-    // Provided by VK_EXT_image_drm_format_modifier
-    VK_ERROR_INVALID_DRM_FORMAT_MODIFIER_PLANE_LAYOUT_EXT = -1000158000,
-    // Provided by VK_EXT_present_timing
-    VK_ERROR_PRESENT_TIMING_QUEUE_FULL_EXT = -1000208000,
-    // Provided by VK_EXT_full_screen_exclusive
-    VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT = -1000255000,
-    // Provided by VK_KHR_deferred_host_operations
-    VK_THREAD_IDLE_KHR = 1000268000,
-    // Provided by VK_KHR_deferred_host_operations
-    VK_THREAD_DONE_KHR = 1000268001,
-    // Provided by VK_KHR_deferred_host_operations
-    VK_OPERATION_DEFERRED_KHR = 1000268002,
-    // Provided by VK_KHR_deferred_host_operations
-    VK_OPERATION_NOT_DEFERRED_KHR = 1000268003,
-    // Provided by VK_KHR_video_encode_queue
-    VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR = -1000299000,
-    // Provided by VK_EXT_image_compression_control
-    VK_ERROR_COMPRESSION_EXHAUSTED_EXT = -1000338000,
-    // Provided by VK_EXT_shader_object
-    VK_INCOMPATIBLE_SHADER_BINARY_EXT = 1000482000,
-    // Provided by VK_KHR_pipeline_binary
-    VK_PIPELINE_BINARY_MISSING_KHR = 1000483000,
-    // Provided by VK_KHR_pipeline_binary
-    VK_ERROR_NOT_ENOUGH_SPACE_KHR = -1000483000,
-};
-
-pub const VkStructureType = enum(i32) {
-    VK_STRUCTURE_TYPE_APPLICATION_INFO = 0,
-    VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO = 1,
 };
 
 const VkInstanceCreateInfo = extern struct {
@@ -368,19 +355,118 @@ pub const VkPhysicalDeviceProperties = extern struct {
     limits: VkPhysicalDeviceLimits,
     sparseProperties: VkPhysicalDeviceSparseProperties,
 
-    pub fn resolveVendorId(self: *VkPhysicalDeviceProperties) VkVendorId {
+    pub fn resolveVendorId(self: VkPhysicalDeviceProperties) VkVendorId {
         return std.enums.fromInt(VkVendorId, self.vendorID) orelse .other;
     }
 };
 
+pub const VkPhysicalDeviceFeatures = extern struct {
+    robustBufferAccess: VkBool32,
+    fullDrawIndexUint32: VkBool32,
+    imageCubeArray: VkBool32,
+    independentBlend: VkBool32,
+    geometryShader: VkBool32,
+    tessellationShader: VkBool32,
+    sampleRateShading: VkBool32,
+    dualSrcBlend: VkBool32,
+    logicOp: VkBool32,
+    multiDrawIndirect: VkBool32,
+    drawIndirectFirstInstance: VkBool32,
+    depthClamp: VkBool32,
+    depthBiasClamp: VkBool32,
+    fillModeNonSolid: VkBool32,
+    depthBounds: VkBool32,
+    wideLines: VkBool32,
+    largePoints: VkBool32,
+    alphaToOne: VkBool32,
+    multiViewport: VkBool32,
+    samplerAnisotropy: VkBool32,
+    textureCompressionETC2: VkBool32,
+    textureCompressionASTC_LDR: VkBool32,
+    textureCompressionBC: VkBool32,
+    occlusionQueryPrecise: VkBool32,
+    pipelineStatisticsQuery: VkBool32,
+    vertexPipelineStoresAndAtomics: VkBool32,
+    fragmentStoresAndAtomics: VkBool32,
+    shaderTessellationAndGeometryPointSize: VkBool32,
+    shaderImageGatherExtended: VkBool32,
+    shaderStorageImageExtendedFormats: VkBool32,
+    shaderStorageImageMultisample: VkBool32,
+    shaderStorageImageReadWithoutFormat: VkBool32,
+    shaderStorageImageWriteWithoutFormat: VkBool32,
+    shaderUniformBufferArrayDynamicIndexing: VkBool32,
+    shaderSampledImageArrayDynamicIndexing: VkBool32,
+    shaderStorageBufferArrayDynamicIndexing: VkBool32,
+    shaderStorageImageArrayDynamicIndexing: VkBool32,
+    shaderClipDistance: VkBool32,
+    shaderCullDistance: VkBool32,
+    shaderFloat64: VkBool32,
+    shaderInt64: VkBool32,
+    shaderInt16: VkBool32,
+    shaderResourceResidency: VkBool32,
+    shaderResourceMinLod: VkBool32,
+    sparseBinding: VkBool32,
+    sparseResidencyBuffer: VkBool32,
+    sparseResidencyImage2D: VkBool32,
+    sparseResidencyImage3D: VkBool32,
+    sparseResidency2Samples: VkBool32,
+    sparseResidency4Samples: VkBool32,
+    sparseResidency8Samples: VkBool32,
+    sparseResidency16Samples: VkBool32,
+    sparseResidencyAliased: VkBool32,
+    variableMultisampleRate: VkBool32,
+    inheritedQueries: VkBool32,
+};
+
+pub const VkDeviceQueueCreateInfo = extern struct {
+    sType: i32,
+    pNext: ?*const anyopaque,
+    flags: u32,
+    queueFamilyIndex: u32,
+    queueCount: u32,
+    pQueuePriorities: [*]const f32,
+};
+pub const VkDeviceCreateFlags = extern struct {};
+
+pub const CString = [*:0]const u8;
+
+pub const CStrings = [*]const CString;
+
+pub const VkDeviceCreateInfo = extern struct {
+    sType: i32,
+    pNext: ?*const anyopaque,
+    flags: u32,
+    queueCreateInfoCount: u32,
+    pQueueCreateInfos: [*]const VkDeviceQueueCreateInfo,
+    enabledLayerCount: u32,
+    ppEnabledLayerNames: ?CStrings,
+    enabledExtensionCount: u32,
+    ppEnabledExtensionNames: ?CStrings,
+    pEnabledFeatures: ?[*]const VkPhysicalDeviceFeatures,
+};
+
+pub const VkExtent3D = extern struct {
+    width: u32,
+    height: u32,
+    depth: u32,
+};
+
+pub const VkQueueFamilyProperties = extern struct {
+    queueFlags: u32,
+    queueCount: u32,
+    timestampValidBits: u32,
+    minImageTransferGranularity: VkExtent3D,
+};
+
 pub const VkInstance = opaque {};
 pub const VkPhysicalDevice = opaque {};
+pub const VkDevice = opaque {};
 
 extern "vulkan" fn vkCreateInstance(
     info: *const VkInstanceCreateInfo,
     allocator: ?*const anyopaque,
     instance: *?*VkInstance,
-) callconv(.c) VkResult;
+) callconv(.c) VkResult.Type;
 
 extern "vulkan" fn vkDestroyInstance(
     instance: *const VkInstance,
@@ -391,9 +477,27 @@ extern "vulkan" fn vkEnumeratePhysicalDevices(
     instance: *const VkInstance,
     pPhysicalDeviceCount: *u32,
     pPhysicalDevices: ?[*]*VkPhysicalDevice,
-) callconv(.c) VkResult;
+) callconv(.c) VkResult.Type;
 
 extern "vulkan" fn vkGetPhysicalDeviceProperties(
     physicalDevice: *VkPhysicalDevice,
     pProperties: *VkPhysicalDeviceProperties,
+) callconv(.c) void;
+
+extern "vulkan" fn vkCreateDevice(
+    physicalDevice: *VkPhysicalDevice,
+    pCreateInfo: *const VkDeviceCreateInfo,
+    allocator: ?*const anyopaque,
+    pDevice: *?*VkDevice,
+) callconv(.c) VkResult.Type;
+
+extern "vulkan" fn vkDestroyDevice(
+    device: *VkDevice,
+    allocator: ?*const anyopaque,
+) callconv(.c) void;
+
+extern "vulkan" fn vkGetPhysicalDeviceQueueFamilyProperties(
+    physicalDevice: *VkPhysicalDevice,
+    pQueueFamilyPropertyCount: *u32,
+    pQueueFamilyProperties: ?[*]VkQueueFamilyProperties,
 ) callconv(.c) void;
