@@ -53,7 +53,11 @@ pub fn init(gpa: std.mem.Allocator) !Self {
     for (devices, 0..pPhysicalDeviceCount) |item, idx| {
         var device = deviceProperties[idx];
         vkGetPhysicalDeviceProperties(item, &device);
-        std.debug.print("vkGetPhysicalDeviceProperties loaded device [ {s} ] vendor [ {d} ] \n", .{ device.deviceName, device.vendorID });
+        std.debug.print("vkGetPhysicalDeviceProperties loaded device [ {s} ] vendor [ {s}({d}) ] \n", .{
+            device.deviceName,
+            @tagName(device.resolveVendorId()),
+            device.vendorID,
+        });
     }
     return .{
         .instance = instance,
@@ -68,6 +72,13 @@ pub fn close(self: *const Self, gpa: std.mem.Allocator) void {
     gpa.free(self.physicalDeviceProperties);
     std.debug.print("vkDestroyInstance finished\n", .{});
 }
+
+pub const VkVendorId = enum(u16) {
+    nvidia = 4318,
+    amd = 4098,
+    intel = 32902,
+    other = 0,
+};
 
 pub const VkResult = enum(i32) {
     VK_SUCCESS = 0,
@@ -312,6 +323,10 @@ pub const VkPhysicalDeviceProperties = extern struct {
     pipelineCacheUUID: [VK_UUID_SIZE]u8,
     limits: VkPhysicalDeviceLimits,
     sparseProperties: VkPhysicalDeviceSparseProperties,
+
+    pub fn resolveVendorId(self: *VkPhysicalDeviceProperties) VkVendorId {
+        return std.enums.fromInt(VkVendorId, self.vendorID) orelse .other;
+    }
 };
 
 pub const VkInstance = opaque {};
