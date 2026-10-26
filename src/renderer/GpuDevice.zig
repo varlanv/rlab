@@ -1,4 +1,5 @@
 const std = @import("std");
+const QueueFamily = @import("QueueFamily.zig");
 const VkStructureType = @import("../vk/VkStructureType.zig");
 const VkResult = @import("../vk/VkResult.zig");
 const Vk = @import("../vk/Vulkan.zig");
@@ -19,10 +20,8 @@ pub fn init(gpa: std.mem.Allocator, vkInstance: *Vk.VkInstance) !Self {
         targetDeviceProperties.deviceName,
         targetDeviceProperties.vendorID,
     });
-    const queueFamilyProperties = try resolveQueueFamilyProperties(gpa, targetDevice);
-    defer gpa.free(queueFamilyProperties);
-    const queueFamilyIdx: u32 = @intCast(if (queueFamilyProperties.len > 1) 1 else queueFamilyProperties.len - 1);
-    const logicalDevice = try initLogicalDevice(targetDevice, queueFamilyIdx);
+    const queueFamily = try QueueFamily.init(gpa, targetDevice);
+    const logicalDevice = try initLogicalDevice(targetDevice, queueFamily.targetFamilyIndex);
     errdefer Vk.vkDestroyDevice(logicalDevice, null);
     return .{
         .physicalDevice = targetDevice,
@@ -130,26 +129,4 @@ fn initLogicalDevice(
         return error.CreateVkDevice;
     }
     return device orelse return error.CreateVkDevice;
-}
-
-fn resolveQueueFamilyProperties(gpa: std.mem.Allocator, physicalDevice: *Vk.VkPhysicalDevice) ![]Vk.VkQueueFamilyProperties {
-    // todo figure out what queue family is used for in Vulkan
-    var propertyCount: u32 = undefined;
-    Vk.vkGetPhysicalDeviceQueueFamilyProperties(
-        physicalDevice,
-        &propertyCount,
-        null,
-    );
-    std.debug.print("vkGetPhysicalDeviceQueueFamilyProperties count call returned {d}\n", .{propertyCount});
-    if (propertyCount == 0) {
-        return error.Todo;
-    }
-    const properties = try gpa.alloc(Vk.VkQueueFamilyProperties, propertyCount);
-    errdefer gpa.free(properties);
-    Vk.vkGetPhysicalDeviceQueueFamilyProperties(
-        physicalDevice,
-        &propertyCount,
-        properties.ptr,
-    );
-    return properties;
 }
