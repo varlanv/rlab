@@ -3,185 +3,6 @@ const VkStructureType = @import("VkStructureType.zig");
 const VkResult = @import("VkResult.zig");
 
 const Self = @This();
-instance: *VkInstance,
-targetPhysicalDevice: *VkPhysicalDevice,
-targetDeviceProperties: VkPhysicalDeviceProperties,
-device: *VkDevice,
-
-pub const VkPhysicalDevices = struct {
-    devices: []*VkPhysicalDevice,
-    properties: []VkPhysicalDeviceProperties,
-};
-
-pub fn init(gpa: std.mem.Allocator) !Self {
-    var vkInstance: ?*VkInstance = null;
-    const createInstanceRes = vkCreateInstance(
-        &.{
-            .sType = VkStructureType.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            .pNext = null,
-            .flags = 0,
-            .pApplicationInfo = null,
-            .enabledLayerCount = 0,
-            .ppEnabledLayerNames = null,
-            .enabledExtensionCount = 0,
-            .ppEnabledExtensionNames = null,
-        },
-        null,
-        &vkInstance,
-    );
-    std.debug.print("vkCreateInstance result -> {d}\n", .{createInstanceRes});
-    if (createInstanceRes != VkResult.VK_SUCCESS) {
-        return error.VulkanInstanceCreate;
-    }
-    const resolvedInstance = vkInstance orelse return error.VulkanInstanceCreate;
-    errdefer vkDestroyInstance(resolvedInstance, null);
-    const physicalDevices = try resolvePhysicalDevices(gpa, resolvedInstance);
-    defer gpa.free(physicalDevices.devices);
-    defer gpa.free(physicalDevices.properties);
-    const suitableGpu = findMostSuitableGpu(physicalDevices);
-    const targetDevice = suitableGpu.@"0";
-    const targetDeviceProperties = suitableGpu.@"1".*;
-    std.debug.print("chose target GPU: [ {s} ] vendor [ {d} ]\n", .{
-        targetDeviceProperties.deviceName,
-        targetDeviceProperties.vendorID,
-    });
-    const queueFamilyProperties = try resolveQueueFamilyProperties(gpa, targetDevice);
-    defer gpa.free(queueFamilyProperties);
-    const queueFamilyIdx: u32 = @intCast(if (queueFamilyProperties.len > 1) 1 else queueFamilyProperties.len - 1);
-    const device = try initLogicalDevice(targetDevice, queueFamilyIdx);
-    errdefer vkDestroyDevice(device, null);
-    return .{
-        .instance = resolvedInstance,
-        .targetPhysicalDevice = targetDevice,
-        .targetDeviceProperties = targetDeviceProperties,
-        .device = device,
-    };
-}
-
-fn initLogicalDevice(
-    physicalDevice: *VkPhysicalDevice,
-    queueFamilyIndex: u32,
-) !*VkDevice {
-    const priorities = [_]f32{1.0};
-    const queueCreateInfos = [_]VkDeviceQueueCreateInfo{.{
-        .sType = VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .pNext = null,
-        .flags = 0,
-        .queueFamilyIndex = queueFamilyIndex,
-        .queueCount = priorities.len,
-        .pQueuePriorities = &priorities,
-    }};
-    const createInfo: VkDeviceCreateInfo = .{
-        .sType = VkStructureType.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pNext = null,
-        .flags = 0,
-        .queueCreateInfoCount = 1,
-        .pQueueCreateInfos = &queueCreateInfos,
-        .enabledLayerCount = 0,
-        .ppEnabledLayerNames = null,
-        .enabledExtensionCount = 0,
-        .ppEnabledExtensionNames = null,
-        .pEnabledFeatures = null,
-    };
-    var device: ?*VkDevice = null;
-    const createRes = vkCreateDevice(
-        physicalDevice,
-        &createInfo,
-        null,
-        &device,
-    );
-    std.debug.print("vkCreateDevice result -> {d}\n", .{createRes});
-    if (createRes != VkResult.VK_SUCCESS) {
-        return error.CreateVkDevice;
-    }
-    return device orelse return error.CreateVkDevice;
-}
-
-fn resolveQueueFamilyProperties(gpa: std.mem.Allocator, physicalDevice: *VkPhysicalDevice) ![]VkQueueFamilyProperties {
-    // todo figure out what queue family is used for in Vulkan
-    var propertyCount: u32 = undefined;
-    vkGetPhysicalDeviceQueueFamilyProperties(
-        physicalDevice,
-        &propertyCount,
-        null,
-    );
-    std.debug.print("vkGetPhysicalDeviceQueueFamilyProperties count call returned {d}\n", .{propertyCount});
-    if (propertyCount == 0) {
-        return error.Todo;
-    }
-    const properties = try gpa.alloc(VkQueueFamilyProperties, propertyCount);
-    errdefer gpa.free(properties);
-    vkGetPhysicalDeviceQueueFamilyProperties(
-        physicalDevice,
-        &propertyCount,
-        properties.ptr,
-    );
-    return properties;
-}
-
-fn resolvePhysicalDevices(gpa: std.mem.Allocator, vkInstance: *VkInstance) !VkPhysicalDevices {
-    var pPhysicalDeviceCount: u32 = undefined;
-    const devicesCountRes = vkEnumeratePhysicalDevices(
-        vkInstance,
-        &pPhysicalDeviceCount,
-        null,
-    );
-    std.debug.print("vkEnumeratePhysicalDevices count result -> {d}\n", .{devicesCountRes});
-    if (devicesCountRes != VkResult.VK_SUCCESS) {
-        return error.VulkanEnumerateDevices;
-    } else if (pPhysicalDeviceCount == 0) {
-        return error.NoVulkanDevices;
-    }
-    std.debug.print("pPhysicalDeviceCount -> {d}\n", .{pPhysicalDeviceCount});
-    const devices = try gpa.alloc(*VkPhysicalDevice, pPhysicalDeviceCount);
-    errdefer gpa.free(devices);
-    const devicesRes = vkEnumeratePhysicalDevices(
-        vkInstance,
-        &pPhysicalDeviceCount,
-        devices.ptr,
-    );
-    if (devicesRes != VkResult.VK_SUCCESS) {
-        return error.VulkanEnumerateDevices;
-    }
-    const deviceProperties = try gpa.alloc(VkPhysicalDeviceProperties, pPhysicalDeviceCount);
-    errdefer gpa.free(deviceProperties);
-    // todo this may need revisit to strictly guarantee that count is same as returned array
-    for (0..pPhysicalDeviceCount) |idx| {
-        const device = devices[idx];
-        const properties = &deviceProperties[idx];
-        vkGetPhysicalDeviceProperties(device, properties);
-        std.debug.print("vkGetPhysicalDeviceProperties loaded device [ {s} ] vendor [ {d} ]\n", .{
-            properties.deviceName,
-            properties.vendorID,
-        });
-    }
-    return .{
-        .devices = devices,
-        .properties = deviceProperties,
-    };
-}
-
-fn findMostSuitableGpu(physicalDevices: VkPhysicalDevices) struct { *VkPhysicalDevice, *VkPhysicalDeviceProperties } {
-    std.debug.assert(physicalDevices.properties.len > 0);
-    std.debug.assert(physicalDevices.properties.len == physicalDevices.devices.len);
-    var resProperties = &physicalDevices.properties[0];
-    var resDevice = physicalDevices.devices[0];
-    // todo this needs more strict implementation
-    for (1..physicalDevices.properties.len) |idx| {
-        const properties = physicalDevices.properties[idx];
-        if (properties.deviceType.priority() < resProperties.deviceType.priority()) {
-            resDevice = physicalDevices.devices[idx];
-            resProperties = &physicalDevices.properties[idx];
-        }
-    }
-    return .{ resDevice, resProperties };
-}
-
-pub fn close(self: *const Self, _: std.mem.Allocator) void {
-    vkDestroyDevice(self.device, null);
-    vkDestroyInstance(self.instance, null);
-    std.debug.print("vkDestroyInstance finished\n", .{});
-}
 
 pub const VkVendorId = enum(u16) {
     nvidia = 4318,
@@ -199,6 +20,11 @@ const VkInstanceCreateInfo = extern struct {
     ppEnabledLayerNames: ?[*]const [*:0]const u8,
     enabledExtensionCount: u32,
     ppEnabledExtensionNames: ?[*]const [*:0]const u8,
+};
+
+pub const VkPhysicalDevices = struct {
+    devices: []*VkPhysicalDevice,
+    properties: []VkPhysicalDeviceProperties,
 };
 
 pub const VkPhysicalDeviceType = enum(u32) {
@@ -462,42 +288,46 @@ pub const VkInstance = opaque {};
 pub const VkPhysicalDevice = opaque {};
 pub const VkDevice = opaque {};
 
-extern "vulkan" fn vkCreateInstance(
+pub extern "vulkan" fn vkCreateInstance(
     info: *const VkInstanceCreateInfo,
     allocator: ?*const anyopaque,
     instance: *?*VkInstance,
 ) callconv(.c) VkResult.Type;
 
-extern "vulkan" fn vkDestroyInstance(
+pub extern "vulkan" fn vkDestroyInstance(
     instance: *const VkInstance,
     allocator: ?*const anyopaque,
 ) callconv(.c) void;
 
-extern "vulkan" fn vkEnumeratePhysicalDevices(
+pub extern "vulkan" fn vkEnumeratePhysicalDevices(
     instance: *const VkInstance,
     pPhysicalDeviceCount: *u32,
     pPhysicalDevices: ?[*]*VkPhysicalDevice,
 ) callconv(.c) VkResult.Type;
 
-extern "vulkan" fn vkGetPhysicalDeviceProperties(
+pub extern "vulkan" fn vkGetPhysicalDeviceProperties(
     physicalDevice: *VkPhysicalDevice,
     pProperties: *VkPhysicalDeviceProperties,
 ) callconv(.c) void;
 
-extern "vulkan" fn vkCreateDevice(
+pub extern "vulkan" fn vkCreateDevice(
     physicalDevice: *VkPhysicalDevice,
     pCreateInfo: *const VkDeviceCreateInfo,
     allocator: ?*const anyopaque,
     pDevice: *?*VkDevice,
 ) callconv(.c) VkResult.Type;
 
-extern "vulkan" fn vkDestroyDevice(
+pub extern "vulkan" fn vkDestroyDevice(
     device: *VkDevice,
     allocator: ?*const anyopaque,
 ) callconv(.c) void;
 
-extern "vulkan" fn vkGetPhysicalDeviceQueueFamilyProperties(
+pub extern "vulkan" fn vkGetPhysicalDeviceQueueFamilyProperties(
     physicalDevice: *VkPhysicalDevice,
     pQueueFamilyPropertyCount: *u32,
     pQueueFamilyProperties: ?[*]VkQueueFamilyProperties,
 ) callconv(.c) void;
+
+pub extern "vulkan" fn vkDeviceWaitIdle(
+    device: *VkDevice,
+) callconv(.c) VkResult.Type;

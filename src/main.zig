@@ -1,11 +1,12 @@
 const std = @import("std");
-const Vulkan = @import("./vk/Vulkan.zig");
+const GraphicsSystem = @import("./renderer/GraphicsSystem.zig");
 const lang = @import("lang.zig");
 
 pub fn main(init: std.process.Init) !void {
     std.debug.print("started\n", .{});
-    const vk = try Vulkan.init(init.gpa);
-    defer vk.close(init.gpa);
+    const gpa = init.gpa;
+    var graphicsSystem = try GraphicsSystem.init(gpa);
+    defer graphicsSystem.close();
 }
 
 fn calc(other: u32) u32 {
