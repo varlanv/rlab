@@ -2,33 +2,7 @@
     .name = .rlab,
     .version = "0.0.1",
     .fingerprint = 0x7ee5dfdda6c43c04, // Changing this has security and trust implications.
-    .dependencies = .{
-        .raylib = .{
-            .url = "https://github.com/raysan5/raylib/archive/refs/tags/6.2.tar.gz",
-            .hash = "raylib-6.0.0-whq8uDpYOAVcH_KyOZ0--nYF1dEsjdQ5r4e9R24UkQOi",
-        },
-        .translate_c = .{
-            .url = "git+https://codeberg.org/ziglang/translate-c?ref=zig-0.17.x#cfac21f3199b2b02ce3fd7db652aa456421fe4ab",
-            .hash = "translate_c-2.0.2-Q_BUWvBNBwDnyehSiuAJmdFcMYHYGA-Jc3KiYdrV2Dqx",
-        },
-        .sdl = .{
-            .url = "https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.4.18.tar.gz",
-            .hash = "N-V-__8AACpx-AKEJIUZ0-XrP9-96MpSaw17FJ7L6B7LmO42",
-        },
-        .sdl_ttf = .{
-            .url = "https://github.com/libsdl-org/SDL_ttf/archive/refs/tags/release-3.2.2.tar.gz",
-            .hash = "N-V-__8AAF2JgAAh17Q1TlM1Y1o3Bpa1ScEBL0bPohGSmXIi",
-        },
-        // Match SDL_ttf vendored dependency revisions.
-        .freetype = .{
-            .url = "https://github.com/libsdl-org/freetype/archive/9973564cfa63763a3e4ac67c09147899539b1e07.tar.gz",
-            .hash = "N-V-__8AAHLWpwDOAhPkM2dXnGZD0Qrj0oELN9CkRIjtjidJ",
-        },
-        .harfbuzz = .{
-            .url = "https://github.com/libsdl-org/harfbuzz/archive/564bf9818a18709776856533829c0c04950773d6.tar.gz",
-            .hash = "N-V-__8AAFdpqQWkaPmT_dHs35vsd0C0D4jKUH0rhc4XyJiD",
-        },
-    },
+    .dependencies = .{},
     .paths = .{
         "build.zig",
         "build.zig.zon",
