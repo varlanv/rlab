@@ -7,6 +7,43 @@ const Self = @This();
 const VK_MAX_PHYSICAL_DEVICE_NAME_SIZE = 256;
 const VK_UUID_SIZE = 16;
 
+vkCreateInstance: *const fn (
+    info: *const VkInstanceCreateInfo,
+    allocator: ?*const anyopaque,
+    instance: *?*VkInstance,
+) callconv(.c) VkResult.Type,
+vkLib: std.DynLib,
+
+// vkDestroyDevice: fn (
+// self: *VkDevice,
+// allocator: ?*const anyopaque,
+// ) callconv(.c) void,
+
+pub fn load() !Self {
+    var vkLib = try std.DynLib.open("libvulkan.so.1");
+    errdefer vkLib.close();
+    const getProcAddrFn = vkLib.lookup(GetInstanceProcAddr, "vkGetInstanceProcAddr") orelse {
+        return error.MissingVulkanSymbol;
+    };
+    return .{
+        .vkCreateInstance = @ptrCast(
+            getProcAddrFn(null, "vkCreateInstance") orelse return error.MissingVulkanFunction,
+        ),
+        .vkLib = vkLib,
+    };
+}
+
+pub fn close(self: *Self) void {
+    self.vkLib.close();
+}
+
+const VoidFunction = *const fn () callconv(.c) void;
+
+const GetInstanceProcAddr = *const fn (
+    instance: ?*VkInstance,
+    name: [*:0]const u8,
+) callconv(.c) ?VoidFunction;
+
 pub const VkQueueFlagBits = enum(u32) {
     VK_QUEUE_GRAPHICS_BIT = 0x00000001,
     VK_QUEUE_COMPUTE_BIT = 0x00000002,
@@ -327,101 +364,93 @@ pub const VkCommandBufferLevel = enum(u32) {
     VK_COMMAND_BUFFER_LEVEL_SECONDARY = 1,
 };
 
-pub const VkInstance = opaque {
-    pub extern "vulkan" fn vkEnumeratePhysicalDevices(
-        self: *const VkInstance,
-        pPhysicalDeviceCount: *u32,
-        pPhysicalDevices: ?[*]*VkPhysicalDevice,
-    ) callconv(.c) VkResult.Type;
+pub const vkEnumeratePhysicalDevices = fn (
+    self: *const VkInstance,
+    pPhysicalDeviceCount: *u32,
+    pPhysicalDevices: ?[*]*VkPhysicalDevice,
+) callconv(.c) VkResult.Type;
 
-    pub extern "vulkan" fn vkDestroyInstance(
-        self: *const VkInstance,
-        allocator: ?*const anyopaque,
-    ) callconv(.c) void;
+pub const vkDestroyInstance = fn (
+    self: *const VkInstance,
+    allocator: ?*const anyopaque,
+) callconv(.c) void;
 
-    pub extern "vulkan" fn vkCreateInstance(
-        info: *const VkInstanceCreateInfo,
-        allocator: ?*const anyopaque,
-        instance: *?*VkInstance,
-    ) callconv(.c) VkResult.Type;
-};
+pub const vkGetPhysicalDeviceProperties = fn (
+    self: *VkPhysicalDevice,
+    pProperties: *VkPhysicalDeviceProperties,
+) callconv(.c) void;
 
-pub const VkPhysicalDevice = opaque {
-    pub extern "vulkan" fn vkGetPhysicalDeviceProperties(
-        self: *VkPhysicalDevice,
-        pProperties: *VkPhysicalDeviceProperties,
-    ) callconv(.c) void;
+pub const vkGetPhysicalDeviceQueueFamilyProperties = fn (
+    self: *VkPhysicalDevice,
+    pQueueFamilyPropertyCount: *u32,
+    pQueueFamilyProperties: ?[*]VkQueueFamilyProperties,
+) callconv(.c) void;
 
-    pub extern "vulkan" fn vkGetPhysicalDeviceQueueFamilyProperties(
-        self: *VkPhysicalDevice,
-        pQueueFamilyPropertyCount: *u32,
-        pQueueFamilyProperties: ?[*]VkQueueFamilyProperties,
-    ) callconv(.c) void;
+pub const vkCreateDevice = fn (
+    self: *VkPhysicalDevice,
+    pCreateInfo: *const VkDeviceCreateInfo,
+    allocator: ?*const anyopaque,
+    pDevice: *?*VkDevice,
+) callconv(.c) VkResult.Type;
 
-    pub extern "vulkan" fn vkCreateDevice(
-        self: *VkPhysicalDevice,
-        pCreateInfo: *const VkDeviceCreateInfo,
-        allocator: ?*const anyopaque,
-        pDevice: *?*VkDevice,
-    ) callconv(.c) VkResult.Type;
-};
+pub const vkBeginCommandBuffer = fn (
+    self: *VkCommandBuffer,
+    pBeginInfo: *const VkCommandBufferBeginInfo,
+) callconv(.c) VkResult.Type;
 
-pub const VkCommandPool = opaque {};
+pub const vkQueueWaitIdle = fn (
+    self: *VkQueue,
+) callconv(.c) VkResult.Type;
 
-pub const VkCommandBuffer = opaque {
-    pub extern "vulkan" fn vkBeginCommandBuffer(
-        self: *VkCommandBuffer,
-        pBeginInfo: *const VkCommandBufferBeginInfo,
-    ) callconv(.c) VkResult.Type;
-};
+pub const vkGetDeviceQueue = fn (
+    self: *VkDevice,
+    queueFamilyIndex: u32,
+    queueIndex: u32,
+    pQueue: **VkQueue,
+) callconv(.c) void;
 
-pub const VkQueue = opaque {
-    pub extern "vulkan" fn vkQueueWaitIdle(self: *VkQueue) callconv(.c) VkResult.Type;
-};
+pub const vkAllocateCommandBuffer = fn (
+    self: *VkDevice,
+    pAllocateInfo: *const VkCommandBufferAllocateInfo,
+    pCommandBuffers: [*]*VkCommandBuffer,
+) callconv(.c) VkResult.Type;
 
-pub const VkFramebuffer = opaque {};
+pub const vkCreateCommandPool = fn (
+    self: *VkDevice,
+    pCreateInfo: *const VkCommandPoolCreateInfo,
+    pAllocator: ?*const anyopaque,
+    pCommandPool: *?*VkCommandPool,
+) callconv(.c) VkResult.Type;
 
-pub const VkRenderPass = opaque {};
+pub const vkResetCommandPool = fn (
+    self: *VkDevice,
+    commandPool: *VkCommandPool,
+    flags: u32,
+) callconv(.c) VkResult.Type;
 
-pub const VkDevice = opaque {
-    pub extern "vulkan" fn vkGetDeviceQueue(
-        self: *VkDevice,
-        queueFamilyIndex: u32,
-        queueIndex: u32,
-        pQueue: **VkQueue,
-    ) callconv(.c) void;
+pub const vkDeviceWaitIdle = fn (
+    self: *VkDevice,
+) callconv(.c) VkResult.Type;
 
-    pub extern "vulkan" fn vkAllocateCommandBuffers(
-        self: *VkDevice,
-        pAllocateInfo: *const VkCommandBufferAllocateInfo,
-        pCommandBuffers: [*]*VkCommandBuffer,
-    ) callconv(.c) VkResult.Type;
+pub const vkDestroyCommandPool = fn (
+    self: *VkDevice,
+    commandPool: *VkCommandPool,
+    allocator: ?*const anyopaque,
+) callconv(.c) void;
 
-    pub extern "vulkan" fn vkCreateCommandPool(
-        self: *VkDevice,
-        pCreateInfo: *const VkCommandPoolCreateInfo,
-        pAllocator: ?*const anyopaque,
-        pCommandPool: *?*VkCommandPool,
-    ) callconv(.c) VkResult.Type;
+const VkOpaque = opaque {};
+pub const VkInstance = VkOpaque;
 
-    pub extern "vulkan" fn vkResetCommandPool(
-        self: *VkDevice,
-        commandPool: *VkCommandPool,
-        flags: u32,
-    ) callconv(.c) VkResult.Type;
+pub const VkPhysicalDevice = VkOpaque;
 
-    pub extern "vulkan" fn vkDeviceWaitIdle(
-        self: *VkDevice,
-    ) callconv(.c) VkResult.Type;
+pub const VkCommandPool = VkOpaque;
 
-    pub extern "vulkan" fn vkDestroyCommandPool(
-        self: *VkDevice,
-        commandPool: *VkCommandPool,
-        allocator: ?*const anyopaque,
-    ) callconv(.c) void;
+pub const VkCommandBuffer = VkOpaque;
 
-    pub extern "vulkan" fn vkDestroyDevice(
-        self: *VkDevice,
-        allocator: ?*const anyopaque,
-    ) callconv(.c) void;
-};
+pub const VkQueue = VkOpaque;
+
+pub const VkFramebuffer = VkOpaque;
+
+pub const VkRenderPass = VkOpaque;
+
+pub const VkDevice = VkOpaque;

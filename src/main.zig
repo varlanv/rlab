@@ -1,12 +1,15 @@
 const std = @import("std");
 const GraphicsSystem = @import("./renderer/GraphicsSystem.zig");
 const lang = @import("lang.zig");
+const Vulkan = @import("vk/Vulkan.zig");
 
-pub fn main(init: std.process.Init) !void {
+const Self = @This();
+
+pub fn main(_: std.process.Init) !void {
     std.debug.print("started\n", .{});
-    // var library = try std.DynLib.open("libvulkan.so.1");
-    // defer library.close();
-    try exploreGraphics(init);
+    var vk = try Vulkan.load();
+    vk.close();
+    // try exploreGraphics(init);
 }
 
 fn exploreGraphics(init: std.process.Init) !void {
