@@ -3,29 +3,33 @@ const Vk = @import("../vk/Vulkan.zig");
 
 const Self = @This();
 targetFamilyIndex: u32,
+targetFamily: Vk.VkQueueFamilyProperties,
 
 pub fn init(gpa: std.mem.Allocator, physicalDevice: *Vk.VkPhysicalDevice) !Self {
     const queueFamilyProperties = try resolveQueueFamilyProperties(gpa, physicalDevice);
     std.debug.print("resolved queue families: {any}\n", .{queueFamilyProperties});
     defer gpa.free(queueFamilyProperties);
     var targetFamilyIndex: u32 = 0;
+    var targetFamily = queueFamilyProperties[targetFamilyIndex];
     for (queueFamilyProperties, 0..) |properties, idx| {
         if ((properties.queueFlags & @backingInt(Vk.VkQueueFlagBits.VK_QUEUE_GRAPHICS_BIT)) != 0) {
             std.debug.print("found graphics queue family at index [ {d} ]\n", .{targetFamilyIndex});
             targetFamilyIndex = @intCast(idx);
+            targetFamily = queueFamilyProperties[idx];
             break;
         }
     }
     std.debug.print("picking queue family index [ {d} ]\n", .{targetFamilyIndex});
+
     return .{
         .targetFamilyIndex = targetFamilyIndex,
+        .targetFamily = targetFamily,
     };
 }
 
 fn resolveQueueFamilyProperties(gpa: std.mem.Allocator, physicalDevice: *Vk.VkPhysicalDevice) ![]Vk.VkQueueFamilyProperties {
     var propertyCount: u32 = undefined;
-    Vk.vkGetPhysicalDeviceQueueFamilyProperties(
-        physicalDevice,
+    physicalDevice.vkGetPhysicalDeviceQueueFamilyProperties(
         &propertyCount,
         null,
     );
@@ -35,8 +39,7 @@ fn resolveQueueFamilyProperties(gpa: std.mem.Allocator, physicalDevice: *Vk.VkPh
     }
     const properties = try gpa.alloc(Vk.VkQueueFamilyProperties, propertyCount);
     errdefer gpa.free(properties);
-    Vk.vkGetPhysicalDeviceQueueFamilyProperties(
-        physicalDevice,
+    physicalDevice.vkGetPhysicalDeviceQueueFamilyProperties(
         &propertyCount,
         properties.ptr,
     );

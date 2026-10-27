@@ -3,6 +3,8 @@ const VkStructureType = @import("VkStructureType.zig");
 const VkResult = @import("VkResult.zig");
 
 const Self = @This();
+const VK_MAX_PHYSICAL_DEVICE_NAME_SIZE = 256;
+const VK_UUID_SIZE = 16;
 
 pub const VkQueueFlagBits = enum(u32) {
     VK_QUEUE_GRAPHICS_BIT = 0x00000001,
@@ -175,9 +177,6 @@ pub const VkPhysicalDeviceSparseProperties = extern struct {
     residencyNonResidentStrict: VkBool32,
 };
 
-const VK_MAX_PHYSICAL_DEVICE_NAME_SIZE = 256;
-const VK_UUID_SIZE = 16;
-
 pub const VkPhysicalDeviceProperties = extern struct {
     apiVersion: u32,
     driverVersion: u32,
@@ -292,50 +291,62 @@ pub const VkQueueFamilyProperties = extern struct {
     minImageTransferGranularity: VkExtent3D,
 };
 
-pub const VkInstance = opaque {};
-pub const VkPhysicalDevice = opaque {};
-pub const VkDevice = opaque {};
+pub const VkInstance = opaque {
+    pub extern "vulkan" fn vkEnumeratePhysicalDevices(
+        self: *const VkInstance,
+        pPhysicalDeviceCount: *u32,
+        pPhysicalDevices: ?[*]*VkPhysicalDevice,
+    ) callconv(.c) VkResult.Type;
 
-pub extern "vulkan" fn vkCreateInstance(
-    info: *const VkInstanceCreateInfo,
-    allocator: ?*const anyopaque,
-    instance: *?*VkInstance,
-) callconv(.c) VkResult.Type;
+    pub extern "vulkan" fn vkDestroyInstance(
+        self: *const VkInstance,
+        allocator: ?*const anyopaque,
+    ) callconv(.c) void;
 
-pub extern "vulkan" fn vkDestroyInstance(
-    instance: *const VkInstance,
-    allocator: ?*const anyopaque,
-) callconv(.c) void;
+    pub extern "vulkan" fn vkCreateInstance(
+        info: *const VkInstanceCreateInfo,
+        allocator: ?*const anyopaque,
+        instance: *?*VkInstance,
+    ) callconv(.c) VkResult.Type;
+};
+pub const VkPhysicalDevice = opaque {
+    pub extern "vulkan" fn vkGetPhysicalDeviceProperties(
+        self: *VkPhysicalDevice,
+        pProperties: *VkPhysicalDeviceProperties,
+    ) callconv(.c) void;
 
-pub extern "vulkan" fn vkEnumeratePhysicalDevices(
-    instance: *const VkInstance,
-    pPhysicalDeviceCount: *u32,
-    pPhysicalDevices: ?[*]*VkPhysicalDevice,
-) callconv(.c) VkResult.Type;
+    pub extern "vulkan" fn vkGetPhysicalDeviceQueueFamilyProperties(
+        self: *VkPhysicalDevice,
+        pQueueFamilyPropertyCount: *u32,
+        pQueueFamilyProperties: ?[*]VkQueueFamilyProperties,
+    ) callconv(.c) void;
 
-pub extern "vulkan" fn vkGetPhysicalDeviceProperties(
-    physicalDevice: *VkPhysicalDevice,
-    pProperties: *VkPhysicalDeviceProperties,
-) callconv(.c) void;
+    pub extern "vulkan" fn vkCreateDevice(
+        self: *VkPhysicalDevice,
+        pCreateInfo: *const VkDeviceCreateInfo,
+        allocator: ?*const anyopaque,
+        pDevice: *?*VkDevice,
+    ) callconv(.c) VkResult.Type;
+};
 
-pub extern "vulkan" fn vkCreateDevice(
-    physicalDevice: *VkPhysicalDevice,
-    pCreateInfo: *const VkDeviceCreateInfo,
-    allocator: ?*const anyopaque,
-    pDevice: *?*VkDevice,
-) callconv(.c) VkResult.Type;
+pub const VkQueue = opaque {
+    pub extern "vulkan" fn vkQueueWaitIdle(self: *VkQueue) callconv(.c) VkResult.Type;
+};
 
-pub extern "vulkan" fn vkDestroyDevice(
-    device: *VkDevice,
-    allocator: ?*const anyopaque,
-) callconv(.c) void;
+pub const VkDevice = opaque {
+    pub extern "vulkan" fn vkGetDeviceQueue(
+        self: *VkDevice,
+        queueFamilyIndex: u32,
+        queueIndex: u32,
+        pQueue: **VkQueue,
+    ) callconv(.c) void;
 
-pub extern "vulkan" fn vkGetPhysicalDeviceQueueFamilyProperties(
-    physicalDevice: *VkPhysicalDevice,
-    pQueueFamilyPropertyCount: *u32,
-    pQueueFamilyProperties: ?[*]VkQueueFamilyProperties,
-) callconv(.c) void;
+    pub extern "vulkan" fn vkDeviceWaitIdle(
+        self: *VkDevice,
+    ) callconv(.c) VkResult.Type;
 
-pub extern "vulkan" fn vkDeviceWaitIdle(
-    device: *VkDevice,
-) callconv(.c) VkResult.Type;
+    pub extern "vulkan" fn vkDestroyDevice(
+        self: *VkDevice,
+        allocator: ?*const anyopaque,
+    ) callconv(.c) void;
+};

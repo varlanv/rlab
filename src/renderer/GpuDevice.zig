@@ -8,6 +8,8 @@ const Self = @This();
 logicalDevice: *Vk.VkDevice,
 physicalDevice: *Vk.VkPhysicalDevice,
 physicalDeviceProperties: Vk.VkPhysicalDeviceProperties,
+queueFamily: QueueFamily,
+queues: []*Vk.VkQueue,
 
 pub fn init(gpa: std.mem.Allocator, vkInstance: *Vk.VkInstance) !Self {
     const physicalDevices = try resolvePhysicalDevices(gpa, vkInstance);
@@ -21,23 +23,31 @@ pub fn init(gpa: std.mem.Allocator, vkInstance: *Vk.VkInstance) !Self {
         targetDeviceProperties.vendorID,
     });
     const queueFamily = try QueueFamily.init(gpa, targetDevice);
-    const logicalDevice = try initLogicalDevice(targetDevice, queueFamily.targetFamilyIndex);
-    errdefer Vk.vkDestroyDevice(logicalDevice, null);
+    const logicalDevice = try initLogicalDevice(
+        gpa,
+        targetDevice,
+        &queueFamily,
+    );
+    errdefer logicalDevice.vkDestroyDevice(null);
+    const queues = try initQueues(gpa, logicalDevice, queueFamily);
+    errdefer gpa.free(queues);
     return .{
         .physicalDevice = targetDevice,
         .physicalDeviceProperties = targetDeviceProperties,
         .logicalDevice = logicalDevice,
+        .queueFamily = queueFamily,
+        .queues = queues,
     };
 }
 
-pub fn close(self: *Self) void {
-    Vk.vkDestroyDevice(self.logicalDevice, null);
+pub fn close(self: *Self, gpa: std.mem.Allocator) void {
+    gpa.free(self.queues);
+    self.logicalDevice.vkDestroyDevice(null);
 }
 
 fn resolvePhysicalDevices(gpa: std.mem.Allocator, vkInstance: *Vk.VkInstance) !Vk.VkPhysicalDevices {
     var pPhysicalDeviceCount: u32 = undefined;
-    const devicesCountRes = Vk.vkEnumeratePhysicalDevices(
-        vkInstance,
+    const devicesCountRes = vkInstance.vkEnumeratePhysicalDevices(
         &pPhysicalDeviceCount,
         null,
     );
@@ -50,8 +60,7 @@ fn resolvePhysicalDevices(gpa: std.mem.Allocator, vkInstance: *Vk.VkInstance) !V
     std.debug.print("pPhysicalDeviceCount -> {d}\n", .{pPhysicalDeviceCount});
     const devices = try gpa.alloc(*Vk.VkPhysicalDevice, pPhysicalDeviceCount);
     errdefer gpa.free(devices);
-    const devicesRes = Vk.vkEnumeratePhysicalDevices(
-        vkInstance,
+    const devicesRes = vkInstance.vkEnumeratePhysicalDevices(
         &pPhysicalDeviceCount,
         devices.ptr,
     );
@@ -64,7 +73,7 @@ fn resolvePhysicalDevices(gpa: std.mem.Allocator, vkInstance: *Vk.VkInstance) !V
     for (0..pPhysicalDeviceCount) |idx| {
         const device = devices[idx];
         const properties = &deviceProperties[idx];
-        Vk.vkGetPhysicalDeviceProperties(device, properties);
+        device.vkGetPhysicalDeviceProperties(properties);
         std.debug.print("vkGetPhysicalDeviceProperties loaded device [ {s} ] vendor [ {d} ]\n", .{
             properties.deviceName,
             properties.vendorID,
@@ -93,17 +102,23 @@ fn findMostSuitableGpu(physicalDevices: Vk.VkPhysicalDevices) struct { *Vk.VkPhy
 }
 
 fn initLogicalDevice(
+    gpa: std.mem.Allocator,
     physicalDevice: *Vk.VkPhysicalDevice,
-    queueFamilyIndex: u32,
+    queueFamily: *const QueueFamily,
 ) !*Vk.VkDevice {
-    const priorities = [_]f32{1.0};
+    const queueCount = queueFamily.targetFamily.queueCount;
+    const priorities = try gpa.alloc(f32, queueCount);
+    defer gpa.free(priorities);
+    for (0..queueCount) |idx| {
+        priorities[idx] = 1.0;
+    }
     const queueCreateInfos = [_]Vk.VkDeviceQueueCreateInfo{.{
         .sType = VkStructureType.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
         .pNext = null,
         .flags = 0,
-        .queueFamilyIndex = queueFamilyIndex,
-        .queueCount = priorities.len,
-        .pQueuePriorities = &priorities,
+        .queueFamilyIndex = queueFamily.targetFamilyIndex,
+        .queueCount = queueCount,
+        .pQueuePriorities = priorities.ptr,
     }};
     const createInfo: Vk.VkDeviceCreateInfo = .{
         .sType = VkStructureType.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -118,8 +133,7 @@ fn initLogicalDevice(
         .pEnabledFeatures = null,
     };
     var device: ?*Vk.VkDevice = null;
-    const createRes = Vk.vkCreateDevice(
-        physicalDevice,
+    const createRes = physicalDevice.vkCreateDevice(
         &createInfo,
         null,
         &device,
@@ -129,4 +143,23 @@ fn initLogicalDevice(
         return error.CreateVkDevice;
     }
     return device orelse return error.CreateVkDevice;
+}
+
+fn initQueues(
+    gpa: std.mem.Allocator,
+    logicalDevice: *Vk.VkDevice,
+    queueFamily: QueueFamily,
+) ![]*Vk.VkQueue {
+    const queueCount = queueFamily.targetFamily.queueCount;
+    const queues = try gpa.alloc(*Vk.VkQueue, queueCount);
+    errdefer gpa.free(queues);
+    for (0..queueCount) |idx| {
+        var queue = queues[idx];
+        logicalDevice.vkGetDeviceQueue(
+            queueFamily.targetFamilyIndex,
+            @intCast(idx),
+            &queue,
+        );
+    }
+    return queues;
 }

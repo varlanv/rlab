@@ -10,7 +10,7 @@ gpuDevice: GpuDevice,
 
 pub fn init(gpa: std.mem.Allocator) !Self {
     var vkInstance: ?*Vk.VkInstance = null;
-    const createInstanceRes = Vk.vkCreateInstance(
+    const createInstanceRes = Vk.VkInstance.vkCreateInstance(
         &.{
             .sType = VkStructureType.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             .pNext = null,
@@ -29,7 +29,7 @@ pub fn init(gpa: std.mem.Allocator) !Self {
         return error.VulkanInstanceCreate;
     }
     const resolvedInstance = vkInstance orelse return error.VulkanInstanceCreate;
-    errdefer Vk.vkDestroyInstance(resolvedInstance, null);
+    errdefer resolvedInstance.vkDestroyInstance(null);
     const gpuDevice = try GpuDevice.init(gpa, resolvedInstance);
     errdefer gpuDevice.close();
     return .{
@@ -38,7 +38,13 @@ pub fn init(gpa: std.mem.Allocator) !Self {
     };
 }
 
-pub fn close(self: *Self) void {
-    self.gpuDevice.close();
-    Vk.vkDestroyInstance(self.vk, null);
+pub fn close(self: *Self, gpa: std.mem.Allocator) void {
+    self.gpuDevice.close(gpa);
+    self.vk.vkDestroyInstance(null);
+}
+
+test "should init" {
+    const gpa = std.testing.allocator;
+    var subject = try init(gpa);
+    defer subject.close(gpa);
 }
