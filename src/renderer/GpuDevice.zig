@@ -11,6 +11,7 @@ physicalDeviceProperties: Vk.VkPhysicalDeviceProperties,
 queueFamily: QueueFamily,
 queues: []*Vk.VkQueue,
 commandPool: *Vk.VkCommandPool,
+commandBuffers: []*Vk.VkCommandBuffer,
 
 pub fn init(
     gpa: std.mem.Allocator,
@@ -38,6 +39,8 @@ pub fn init(
     errdefer gpa.free(queues);
     const commandPool = try initCommandPool(logicalDevice, queueFamily);
     errdefer logicalDevice.vkDestroyCommandPool(commandPool, null);
+    const commandBuffers = try initCommandBuffers(gpa, logicalDevice, commandPool);
+    errdefer gpa.free(commandBuffers);
     return .{
         .physicalDevice = targetDevice,
         .physicalDeviceProperties = targetDeviceProperties,
@@ -45,11 +48,13 @@ pub fn init(
         .queueFamily = queueFamily,
         .queues = queues,
         .commandPool = commandPool,
+        .commandBuffers = commandBuffers,
     };
 }
 
 pub fn close(self: *Self, gpa: std.mem.Allocator) void {
     gpa.free(self.queues);
+    gpa.free(self.commandBuffers);
     self.logicalDevice.vkDestroyCommandPool(self.commandPool, null);
     self.logicalDevice.vkDestroyDevice(null);
 }
@@ -191,4 +196,26 @@ fn initCommandPool(
         return error.CommandBufferCreate;
     }
     return pool orelse return error.CommandBufferCreate;
+}
+
+fn initCommandBuffers(gpa: std.mem.Allocator, logicalDevice: *Vk.VkDevice, commandPool: *Vk.VkCommandPool) ![]*Vk.VkCommandBuffer {
+    const commandBufferCount = 1;
+    const commandBuffers = try gpa.alloc(*Vk.VkCommandBuffer, commandBufferCount);
+    errdefer gpa.free(commandBuffers);
+    // todo - figure out is sync needed here based on doc: "Host access to pAllocateInfo -> commandPool must be externally synchronized"
+    const allocateInfo: Vk.VkCommandBufferAllocateInfo = .{
+        .sType = VkStructureType.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = null,
+        .commandPool = commandPool,
+        .level = Vk.VkCommandBufferLevel.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = commandBufferCount,
+    };
+    const res = logicalDevice.vkAllocateCommandBuffers(
+        &allocateInfo,
+        commandBuffers.ptr,
+    );
+    if (res != VkResult.VK_SUCCESS) {
+        return error.AllocateCommandBuffers;
+    }
+    return commandBuffers;
 }

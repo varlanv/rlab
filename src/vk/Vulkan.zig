@@ -23,7 +23,7 @@ pub const VkVendorId = enum(u16) {
 };
 
 const VkInstanceCreateInfo = extern struct {
-    sType: i32,
+    sType: VkStructureType.Type,
     pNext: ?*const anyopaque,
     flags: u32,
     pApplicationInfo: ?*const anyopaque,
@@ -253,7 +253,7 @@ pub const VkPhysicalDeviceFeatures = extern struct {
 };
 
 pub const VkDeviceQueueCreateInfo = extern struct {
-    sType: i32,
+    sType: VkStructureType.Type,
     pNext: ?*const anyopaque,
     flags: u32,
     queueFamilyIndex: u32,
@@ -264,7 +264,7 @@ pub const VkDeviceQueueCreateInfo = extern struct {
 pub const VkDeviceCreateFlags = extern struct {};
 
 pub const VkDeviceCreateInfo = extern struct {
-    sType: i32,
+    sType: VkStructureType.Type,
     pNext: ?*const anyopaque,
     flags: u32,
     queueCreateInfoCount: u32,
@@ -290,10 +290,41 @@ pub const VkQueueFamilyProperties = extern struct {
 };
 
 pub const VkCommandPoolCreateInfo = extern struct {
-    sType: i32,
+    sType: VkStructureType.Type,
     pNext: ?*const anyopaque,
     flags: u32,
     queueFamilyIndex: u32,
+};
+
+pub const VkCommandBufferAllocateInfo = extern struct {
+    sType: VkStructureType.Type,
+    pNext: ?*const anyopaque,
+    commandPool: *VkCommandPool,
+    level: VkCommandBufferLevel,
+    commandBufferCount: u32,
+};
+
+pub const VkCommandBufferInheritanceInfo = extern struct {
+    sType: VkStructureType.Type,
+    pNext: ?*const anyopaque,
+    renderPass: *VkRenderPass,
+    subpass: u32,
+    framebuffer: *VkFramebuffer,
+    occlusionQueryEnable: VkBool32,
+    queryFlags: u32,
+    pipelineStatistics: u32,
+};
+
+pub const VkCommandBufferBeginInfo = extern struct {
+    sType: VkStructureType.Type,
+    pNext: ?*const anyopaque,
+    flags: u32,
+    pInheritanceInfo: *const VkCommandBufferInheritanceInfo,
+};
+
+pub const VkCommandBufferLevel = enum(u32) {
+    VK_COMMAND_BUFFER_LEVEL_PRIMARY = 0,
+    VK_COMMAND_BUFFER_LEVEL_SECONDARY = 1,
 };
 
 pub const VkInstance = opaque {
@@ -337,9 +368,20 @@ pub const VkPhysicalDevice = opaque {
 
 pub const VkCommandPool = opaque {};
 
+pub const VkCommandBuffer = opaque {
+    pub extern "vulkan" fn vkBeginCommandBuffer(
+        self: *VkCommandBuffer,
+        pBeginInfo: *const VkCommandBufferBeginInfo,
+    ) callconv(.c) VkResult.Type;
+};
+
 pub const VkQueue = opaque {
     pub extern "vulkan" fn vkQueueWaitIdle(self: *VkQueue) callconv(.c) VkResult.Type;
 };
+
+pub const VkFramebuffer = opaque {};
+
+pub const VkRenderPass = opaque {};
 
 pub const VkDevice = opaque {
     pub extern "vulkan" fn vkGetDeviceQueue(
@@ -349,11 +391,23 @@ pub const VkDevice = opaque {
         pQueue: **VkQueue,
     ) callconv(.c) void;
 
+    pub extern "vulkan" fn vkAllocateCommandBuffers(
+        self: *VkDevice,
+        pAllocateInfo: *const VkCommandBufferAllocateInfo,
+        pCommandBuffers: [*]*VkCommandBuffer,
+    ) callconv(.c) VkResult.Type;
+
     pub extern "vulkan" fn vkCreateCommandPool(
         self: *VkDevice,
         pCreateInfo: *const VkCommandPoolCreateInfo,
         pAllocator: ?*const anyopaque,
         pCommandPool: *?*VkCommandPool,
+    ) callconv(.c) VkResult.Type;
+
+    pub extern "vulkan" fn vkResetCommandPool(
+        self: *VkDevice,
+        commandPool: *VkCommandPool,
+        flags: u32,
     ) callconv(.c) VkResult.Type;
 
     pub extern "vulkan" fn vkDeviceWaitIdle(
