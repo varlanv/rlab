@@ -5,7 +5,10 @@ const lang = @import("lang.zig");
 pub fn main(init: std.process.Init) !void {
     std.debug.print("started\n", .{});
     const gpa = init.gpa;
-    var graphicsSystem = try GraphicsSystem.init(gpa);
+    const initialIo = try lang.InitialIo.init(init.io, gpa);
+    defer initialIo.close(gpa);
+    const io = initialIo.io;
+    var graphicsSystem = try GraphicsSystem.init(gpa, io);
     defer graphicsSystem.close(gpa);
 }
 

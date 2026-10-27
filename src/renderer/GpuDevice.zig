@@ -10,8 +10,13 @@ physicalDevice: *Vk.VkPhysicalDevice,
 physicalDeviceProperties: Vk.VkPhysicalDeviceProperties,
 queueFamily: QueueFamily,
 queues: []*Vk.VkQueue,
+commandPool: *Vk.VkCommandPool,
 
-pub fn init(gpa: std.mem.Allocator, vkInstance: *Vk.VkInstance) !Self {
+pub fn init(
+    gpa: std.mem.Allocator,
+    _: std.Io,
+    vkInstance: *Vk.VkInstance,
+) !Self {
     const physicalDevices = try resolvePhysicalDevices(gpa, vkInstance);
     defer gpa.free(physicalDevices.devices);
     defer gpa.free(physicalDevices.properties);
@@ -31,17 +36,21 @@ pub fn init(gpa: std.mem.Allocator, vkInstance: *Vk.VkInstance) !Self {
     errdefer logicalDevice.vkDestroyDevice(null);
     const queues = try initQueues(gpa, logicalDevice, queueFamily);
     errdefer gpa.free(queues);
+    const commandPool = try initCommandPool(logicalDevice, queueFamily);
+    errdefer logicalDevice.vkDestroyCommandPool(commandPool, null);
     return .{
         .physicalDevice = targetDevice,
         .physicalDeviceProperties = targetDeviceProperties,
         .logicalDevice = logicalDevice,
         .queueFamily = queueFamily,
         .queues = queues,
+        .commandPool = commandPool,
     };
 }
 
 pub fn close(self: *Self, gpa: std.mem.Allocator) void {
     gpa.free(self.queues);
+    self.logicalDevice.vkDestroyCommandPool(self.commandPool, null);
     self.logicalDevice.vkDestroyDevice(null);
 }
 
@@ -154,12 +163,32 @@ fn initQueues(
     const queues = try gpa.alloc(*Vk.VkQueue, queueCount);
     errdefer gpa.free(queues);
     for (0..queueCount) |idx| {
-        var queue = queues[idx];
         logicalDevice.vkGetDeviceQueue(
             queueFamily.targetFamilyIndex,
             @intCast(idx),
-            &queue,
+            &queues[idx],
         );
     }
     return queues;
+}
+
+fn initCommandPool(
+    logicalDevice: *Vk.VkDevice,
+    queueFamily: QueueFamily,
+) !*Vk.VkCommandPool {
+    var pool: ?*Vk.VkCommandPool = null;
+    const res = logicalDevice.vkCreateCommandPool(
+        &.{
+            .sType = VkStructureType.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .pNext = null,
+            .flags = 0, //todo check flags
+            .queueFamilyIndex = queueFamily.targetFamilyIndex,
+        },
+        null,
+        &pool,
+    );
+    if (res != VkResult.VK_SUCCESS) {
+        return error.CommandBufferCreate;
+    }
+    return pool orelse return error.CommandBufferCreate;
 }

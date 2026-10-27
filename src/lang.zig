@@ -1,6 +1,7 @@
 const std = @import("std");
 
-pub const CString = [:0]const u8;
+pub const CString = [*:0]const u8;
+pub const CStrings = [*]const CString;
 
 pub const InitialIo = struct {
     const Self = @This();

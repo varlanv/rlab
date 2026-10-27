@@ -1,4 +1,5 @@
 const std = @import("std");
+const lang = @import("../lang.zig");
 const VkStructureType = @import("VkStructureType.zig");
 const VkResult = @import("VkResult.zig");
 
@@ -259,11 +260,8 @@ pub const VkDeviceQueueCreateInfo = extern struct {
     queueCount: u32,
     pQueuePriorities: [*]const f32,
 };
+
 pub const VkDeviceCreateFlags = extern struct {};
-
-pub const CString = [*:0]const u8;
-
-pub const CStrings = [*]const CString;
 
 pub const VkDeviceCreateInfo = extern struct {
     sType: i32,
@@ -272,9 +270,9 @@ pub const VkDeviceCreateInfo = extern struct {
     queueCreateInfoCount: u32,
     pQueueCreateInfos: [*]const VkDeviceQueueCreateInfo,
     enabledLayerCount: u32,
-    ppEnabledLayerNames: ?CStrings,
+    ppEnabledLayerNames: ?lang.CStrings,
     enabledExtensionCount: u32,
-    ppEnabledExtensionNames: ?CStrings,
+    ppEnabledExtensionNames: ?lang.CStrings,
     pEnabledFeatures: ?[*]const VkPhysicalDeviceFeatures,
 };
 
@@ -289,6 +287,13 @@ pub const VkQueueFamilyProperties = extern struct {
     queueCount: u32,
     timestampValidBits: u32,
     minImageTransferGranularity: VkExtent3D,
+};
+
+pub const VkCommandPoolCreateInfo = extern struct {
+    sType: i32,
+    pNext: ?*const anyopaque,
+    flags: u32,
+    queueFamilyIndex: u32,
 };
 
 pub const VkInstance = opaque {
@@ -309,6 +314,7 @@ pub const VkInstance = opaque {
         instance: *?*VkInstance,
     ) callconv(.c) VkResult.Type;
 };
+
 pub const VkPhysicalDevice = opaque {
     pub extern "vulkan" fn vkGetPhysicalDeviceProperties(
         self: *VkPhysicalDevice,
@@ -329,6 +335,8 @@ pub const VkPhysicalDevice = opaque {
     ) callconv(.c) VkResult.Type;
 };
 
+pub const VkCommandPool = opaque {};
+
 pub const VkQueue = opaque {
     pub extern "vulkan" fn vkQueueWaitIdle(self: *VkQueue) callconv(.c) VkResult.Type;
 };
@@ -341,9 +349,22 @@ pub const VkDevice = opaque {
         pQueue: **VkQueue,
     ) callconv(.c) void;
 
+    pub extern "vulkan" fn vkCreateCommandPool(
+        self: *VkDevice,
+        pCreateInfo: *const VkCommandPoolCreateInfo,
+        pAllocator: ?*const anyopaque,
+        pCommandPool: *?*VkCommandPool,
+    ) callconv(.c) VkResult.Type;
+
     pub extern "vulkan" fn vkDeviceWaitIdle(
         self: *VkDevice,
     ) callconv(.c) VkResult.Type;
+
+    pub extern "vulkan" fn vkDestroyCommandPool(
+        self: *VkDevice,
+        commandPool: *VkCommandPool,
+        allocator: ?*const anyopaque,
+    ) callconv(.c) void;
 
     pub extern "vulkan" fn vkDestroyDevice(
         self: *VkDevice,

@@ -8,7 +8,7 @@ const Self = @This();
 vk: *Vk.VkInstance,
 gpuDevice: GpuDevice,
 
-pub fn init(gpa: std.mem.Allocator) !Self {
+pub fn init(gpa: std.mem.Allocator, io: std.Io) !Self {
     var vkInstance: ?*Vk.VkInstance = null;
     const createInstanceRes = Vk.VkInstance.vkCreateInstance(
         &.{
@@ -30,7 +30,7 @@ pub fn init(gpa: std.mem.Allocator) !Self {
     }
     const resolvedInstance = vkInstance orelse return error.VulkanInstanceCreate;
     errdefer resolvedInstance.vkDestroyInstance(null);
-    const gpuDevice = try GpuDevice.init(gpa, resolvedInstance);
+    const gpuDevice = try GpuDevice.init(gpa, io, resolvedInstance);
     errdefer gpuDevice.close();
     return .{
         .vk = resolvedInstance,
@@ -45,6 +45,7 @@ pub fn close(self: *Self, gpa: std.mem.Allocator) void {
 
 test "should init" {
     const gpa = std.testing.allocator;
-    var subject = try init(gpa);
+    const io = std.testing.io;
+    var subject = try init(gpa, io);
     defer subject.close(gpa);
 }
